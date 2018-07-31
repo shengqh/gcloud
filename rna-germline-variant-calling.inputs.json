@@ -1,0 +1,50 @@
+{
+  "##_COMMENT1": "Input",
+    "RNAseq.input_fastq1": "gs://cqs/genepaneldata/TP0097_Norecur_Base1.1.fastq.gz",
+    "RNAseq.input_fastq2": "gs://cqs/genepaneldata/TP0097_Norecur_Base1.2.fastq.gz",
+    "RNAseq.RGline": "ID:TP0097_Norecur_Base SM:TP0097_Norecur_Base LB:TP0097_Norecur_Base PL:ILLUMINA PU:ILLUMINA",  
+  "##_COMMENT2": "REFERENCE FILES",
+  "RNAseq.refFasta": "gs://broad-references/Homo_sapiens_assembly19_1000genomes_decoy/Homo_sapiens_assembly19_1000genomes_decoy.fasta",
+  "RNAseq.refFastaIndex": "gs://broad-references/Homo_sapiens_assembly19_1000genomes_decoy/Homo_sapiens_assembly19_1000genomes_decoy.fasta.fai",
+  "RNAseq.refDict": "gs://broad-references/Homo_sapiens_assembly19_1000genomes_decoy/Homo_sapiens_assembly19_1000genomes_decoy.dict",
+  
+  "##_COMMENT3": "INTERVALS",
+  "RNAseq.wgsCallingIntervalList": "gs://broad-references/Homo_sapiens_assembly19_1000genomes_decoy/Homo_sapiens_assembly19_1000genomes_decoy.whole_genome.interval_list",
+  
+  "##_COMMENT4": "RESOURCE FILES",
+  "RNAseq.dbSnpVcf": "gs://broad-references/Homo_sapiens_assembly19_1000genomes_decoy/Homo_sapiens_assembly19_1000genomes_decoy.dbsnp138.vcf",
+  "RNAseq.dbSnpVcfIndex": "gs://broad-references/Homo_sapiens_assembly19_1000genomes_decoy/Homo_sapiens_assembly19_1000genomes_decoy.dbsnp138.vcf.idx",
+  "RNAseq.knownVcfs": [
+    "gs://broad-references/Homo_sapiens_assembly19_1000genomes_decoy/Mills_and_1000G_gold_standard.indels.b37.sites.vcf",
+    "gs://broad-references/Homo_sapiens_assembly19_1000genomes_decoy/Homo_sapiens_assembly19_1000genomes_decoy.known_indels.vcf"
+  ],
+  "RNAseq.knownVcfsIndices": [
+    "gs://broad-references/Homo_sapiens_assembly19_1000genomes_decoy/Mills_and_1000G_gold_standard.indels.b37.sites.vcf.idx",
+    "gs://broad-references/Homo_sapiens_assembly19_1000genomes_decoy/Homo_sapiens_assembly19_1000genomes_decoy.known_indels.vcf.idx"
+  ],
+  "RNAseq.annotationsGTF": "gs://gatk-test-data/intervals/star.gencode.v19.transcripts.patched_contigs.gtf",
+  
+  "##_COMMENT4": "DOCKERS",
+  "RNAseq.gatk4_docker": "us.gcr.io/broad-gatk/gatk",
+  "RNAseq.star_docker": "quay.io/humancellatlas/secondary-analysis-star:v0.2.2-2.5.3a-40ead6e",
+  "RNAseq.gitc_docker": "us.gcr.io/broad-gotc-prod/genomes-in-the-cloud:2.3.3-1513176735",
+  
+  "##_COMMENT5": "PATHS",
+  "RNAseq.gatk_path": "/gatk/gatk",
+
+  "##_COMMENT6": "PREEMPTIBLES",
+  "##RNAseq.preemptible_tries": "(optional) Int?",
+  
+  "##_COMMENT7": "Misc",
+  "##RNAseq.StarAlign.num_threads": "(optional) Int?",
+  "##RNAseq.StarAlign.star_limitOutSJcollapsed": "(optional) Int?",
+  "##RNAseq.minConfidenceForVariantCalling": "(optional) Int?",
+  "##RNAseq.haplotypeScatterCount": "(optional) Int?",
+  "##RNAseq.zippedStarReferences": "(optional) File?",
+  "RNAseq.StarGenerateReferences.addtional_disk": 50,
+  "##RNAseq.readLength": "(optional) Int?",
+  "##RNAseq.StarAlign.star_mem_max_gb": "(optional) Int?",
+  "##RNAseq.StarGenerateReferences.num_threads": "(optional) Int?",
+  "RNAseq.StarAlign.additional_disk": "50",
+    "##RNAseq.StarGenerateReferences.mem_gb": "(optional) Int?"
+}
