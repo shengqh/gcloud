@@ -1,3 +1,4 @@
+## Quanhu Sheng, quanhu.sheng.1@vanderbilt.edu 08/2018
 ## Shenglai He, shenglai.he@vanderbilt.edu 07/2018
 ##
 ## This WDL pipeline implements data pre-processing and initial variant calling (GVCF
@@ -7,7 +8,7 @@
 ## Inputs file format: fastq 
 
 # WORKFLOW DEFINITION
-workflow dnaseq {
+workflow paired_dnaseq {
 
   File contamination_sites_ud
   File contamination_sites_bed
@@ -18,12 +19,7 @@ workflow dnaseq {
   File wgs_coverage_interval_list
 
   String sample_name
-  String base_file_name
-  String final_gvcf_base_name
-  #Array[File] flowcell_unmapped_bams
-  # String unmapped_bam_suffix
   String unmapped_fastq_suffix
-
   
   File raw_fastq1
   File raw_fastq2
@@ -77,13 +73,13 @@ workflow dnaseq {
 
   String bwa_commandline
 
-  String recalibrated_bam_basename = base_file_name + ".aligned.duplicates_marked.recalibrated"
+  String recalibrated_bam_basename = sample_name + ".aligned.duplicates_marked.recalibrated"
 
   Int compression_level = 2
 
   # Get the version of BWA to include in the PG record in the header of the BAM produced
   # by MergeBamAlignment.
-  call GetBwaVersion
+  #call GetBwaVersion
 
   # Get the size of the standard reference files as well as the additional reference files needed for BWA
   Float ref_size = size(ref_fasta, "GB") + size(ref_fasta_index, "GB") + size(ref_dict, "GB")
@@ -97,8 +93,6 @@ workflow dnaseq {
 
   String sub_strip_path = "gs://.*/"
   String sub_strip_unmapped = unmapped_fastq_suffix + "$"
-  String sub_sub = sub(sub(raw_fastq1, sub_strip_path, ""), sub_strip_unmapped, "")
-
     
   # Map reads to reference
   call FastqBwaMem {
@@ -106,7 +100,8 @@ workflow dnaseq {
       input_fastq1 = raw_fastq1,
       input_fastq2 = raw_fastq2,
       bwa_commandline = bwa_commandline,
-      output_bam_basename = sub_sub + ".aligned.unsorted",
+      sample_name = sample_name,
+      output_bam_basename = sample_name + ".aligned.unsorted",
       ref_fasta = ref_fasta,
       ref_fasta_index = ref_fasta_index,
       ref_dict = ref_dict,
@@ -116,7 +111,6 @@ workflow dnaseq {
       ref_ann = ref_ann,
       ref_pac = ref_pac,
       ref_sa = ref_sa,
-      bwa_version = GetBwaVersion.version,
       # The merged bam can be bigger than only the aligned bam,
       # so account for the output size by multiplying the input size by 2.75.
       disk_size = unmapped_fastq_size + bwa_ref_size + (bwa_disk_multiplier * unmapped_fastq_size) + additional_disk,
@@ -155,7 +149,7 @@ task FastqBwaMem {
   File input_fastq1
   File input_fastq2
   String bwa_commandline
-  String bwa_version
+  String sample_name
   String output_bam_basename
   File ref_fasta
   File ref_fasta_index
@@ -180,10 +174,11 @@ task FastqBwaMem {
 
     # set the bash variable needed for the command-line
     bash_ref_fasta=${ref_fasta}
+    bash_sample_name=${sample_name}
     # if ref_alt has data in it,
     if [ -s ${ref_alt} ]; then
       
-      /usr/gitc/${bwa_commandline} ${input_fastq1} ${input_fastq2} >${output_bam_basename}.sam \
+      /usr/gitc/${bwa_commandline} -R '@RG\tID:'$bash_sample_name'\tPU:illumina\tLB:'$bash_sample_name'\tSM:'$bash_sample_name'\tPL:illumina' -Y $bash_ref_fasta ${input_fastq1} ${input_fastq2} >${output_bam_basename}.sam \
       2> >(tee ${output_bam_basename}.bwa.stderr.log >&2)
       grep -m1 "read .* ALT contigs" ${output_bam_basename}.bwa.stderr.log | \
       grep -v "read 0 ALT contigs"
