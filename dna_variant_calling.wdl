@@ -136,22 +136,14 @@ workflow dnaseq {
 
     Float mapped_bam_size = size(SamtoBam.output_bam, "GB")
 
-  # Sum the read group bam sizes to approximate the aggregated bam size
-  call SumFloats {
-    input:
-      sizes = mapped_bam_size,
-      preemptible_tries = preemptible_tries
-  }
-  
   call MarkDuplicates {
     input:
-      input_bams = SamtoBam.output_bam,
+      input_bam = SamtoBam.output_bam,
       output_bam_basename = base_file_name + ".aligned.unsorted.duplicates_marked",
       metrics_filename = base_file_name + ".duplicate_metrics",
       # The merged bam will be smaller than the sum of the parts so we need to account for the unmerged inputs
       # and the merged output.
-      disk_size = (md_disk_multiplier * SumFloats.total_size) + additional_disk,
-      compression_level = compression_level,
+      disk_size = (md_disk_multiplier * mapped_bam_size) + additional_disk,
       preemptible_tries = agg_preemptible_tries
   }
 
@@ -566,11 +558,10 @@ task CollectUnsortedReadgroupBamQualityMetrics {
 
 # Mark duplicate reads to avoid counting non-independent observations
 task MarkDuplicates {
-  Array[File] input_bams
+  File input_bam
   String output_bam_basename
   String metrics_filename
   Float disk_size
-  Int compression_level
   Int preemptible_tries
 
   # The program default for READ_NAME_REGEX is appropriate in nearly every case.
@@ -582,22 +573,18 @@ task MarkDuplicates {
  # This works because the output of BWA is query-grouped and therefore, so is the output of MergeBamAlignment.
  # While query-grouped isn't actually query-sorted, it's good enough for MarkDuplicates with ASSUME_SORT_ORDER="queryname"
   command {
-    java -Dsamjdk.compression_level=${compression_level} -Xms4000m -jar /usr/gitc/picard.jar \
+    java -Xmx40g -jar /usr/gitc/picard.jar \
       MarkDuplicates \
-      INPUT=${sep=' INPUT=' input_bams} \
+      INPUT=${input_bam} \
       OUTPUT=${output_bam_basename}.bam \
       METRICS_FILE=${metrics_filename} \
-      VALIDATION_STRINGENCY=SILENT \
-      ${"READ_NAME_REGEX=" + read_name_regex} \
-      OPTICAL_DUPLICATE_PIXEL_DISTANCE=2500 \
-      CLEAR_DT="false" \
-      ADD_PG_TAG_TO_READS=false
+      VALIDATION_STRINGENCY=SILENT 
   }
   runtime {
     preemptible: preemptible_tries
-    memory: "7 GB"
+    memory: "40 GB"
     disks: "local-disk " + sub(disk_size, "\\..*", "") + " HDD"
-    docker: "broadinstitute/genomes-in-the-cloud:2.3.1-1512499786"
+    docker: "us.gcr.io/broad-gotc-prod/genomes-in-the-cloud:2.4.1-1540490856"
   }
   output {
     File output_bam = "${output_bam_basename}.bam"
