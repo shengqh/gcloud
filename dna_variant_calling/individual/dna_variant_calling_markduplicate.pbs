@@ -1,0 +1,39 @@
+#!/bin/bash
+#SBATCH --mail-user=quanhu.sheng.1@vumc.org
+#SBATCH --mail-type=ALL
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --time=2:00:00
+#SBATCH --mem=10G
+
+#SBATCH -o /scratch/cqs/shengq2/tim_data/20181210_gcloud_tim_exome/log/NJ195-201_gpd.log
+
+
+
+
+
+cd /scratch/cqs/shengq2/tim_data/20181210_gcloud_tim_exome/test
+
+
+echo Gcloud::PairedDNASeqFastq_start=`date`
+echo working in /scratch/cqs/shengq2/tim_data/20181210_gcloud_tim_exome/result ...
+ 
+
+gcloud config set project cqsdnaseqtest
+
+gcloud \
+  alpha genomics pipelines run \
+  --pipeline-file /scratch/cqs/shengq2/gcloud/open_wdl/runners/cromwell_on_google/wdl_runner/wdl_pipeline.yaml \
+  --inputs-from-file WDL=/home/shengq2/program/gcloud/dna_variant_calling_markduplicate.wdl,\
+WORKFLOW_INPUTS=/scratch/cqs/shengq2/tim_data/20181210_gcloud_tim_exome/test/NJ195-201_gpd.inputs.json,\
+WORKFLOW_OPTIONS=/home/shengq2/program/gcloud/dna_variant_calling.options.json \
+  --env-vars WORKSPACE=gs://timdata/exomeresult/workspace,\
+OUTPUTS=gs://timdata/exomeresult/result/NJ195-201 \
+  --logging gs://timdata/exomeresult/logging/NJ195-201.log --memory 5  2>&1 | tee NJ195-201_gpd.pbs.id
+    
+
+
+echo Gcloud::PairedDNASeqFastq_end=`date`
+
+exit 0
+ 

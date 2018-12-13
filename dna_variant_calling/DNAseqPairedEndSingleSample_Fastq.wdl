@@ -1,5 +1,3 @@
-## Shenglai He, shenglai.he@vanderbilt.edu 07/2018
-##
 ## This WDL pipeline implements data pre-processing and initial variant calling (GVCF
 ## generation) according to the GATK Best Practices (June 2016) for germline SNP and
 ## Indel discovery in human whole-genome sequencing (WGS) data.
@@ -20,10 +18,7 @@ workflow dnaseq {
   String sample_name
   String base_file_name
   String final_gvcf_base_name
-  #Array[File] flowcell_unmapped_bams
-  # String unmapped_bam_suffix
   String unmapped_fastq_suffix
-
   
   File raw_fastq1
   File raw_fastq2
