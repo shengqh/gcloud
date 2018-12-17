@@ -1036,7 +1036,7 @@ task HaplotypeCaller {
       -ERC GVCF \
       --max-alternate-alleles 3 \
       --contamination ${default=0 contamination} \
-      --read-filter OverclippedRead
+      --read-filter OverclippedReadFilter
   }
   runtime {
     preemptible: preemptible_tries
