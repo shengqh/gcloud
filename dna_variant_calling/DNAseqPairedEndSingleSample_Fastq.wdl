@@ -273,6 +273,7 @@ workflow dnaseq {
       input:
         contamination = CheckContamination.contamination,
         input_bam = GatherBamFiles.output_bam,
+        input_bai = GatherBamFiles.output_bam_index,
         interval_list = ScatterIntervalList.out[index],
         gvcf_basename = base_file_name,
         ref_dict = ref_dict,
@@ -363,7 +364,7 @@ task CollectQualityYieldMetrics {
     disks: "local-disk " + sub(disk_size, "\\..*", "") + " HDD"
     memory: "3 GB"
     preemptible: preemptible_tries
-    docker: "broadinstitute/genomes-in-the-cloud:2.3.1-1512499786"
+    docker: "us.gcr.io/broad-gotc-prod/genomes-in-the-cloud:2.4.1-1540490856"
   }
   output {
     File metrics = "${metrics_filename}"
@@ -381,7 +382,7 @@ task GetBwaVersion {
   }
   runtime {
     memory: "1 GB"
-    docker: "broadinstitute/genomes-in-the-cloud:2.3.1-1512499786"
+    docker: "us.gcr.io/broad-gotc-prod/genomes-in-the-cloud:2.4.1-1540490856"
   }
   output {
     String version = read_string(stdout())
@@ -436,7 +437,7 @@ task FastqBwaMem {
     memory: "14 GB"
     cpu: "16"
     disks: "local-disk " + sub(disk_size, "\\..*", "") + " HDD"
-    docker: "broadinstitute/genomes-in-the-cloud:2.3.1-1512499786"
+    docker: "us.gcr.io/broad-gotc-prod/genomes-in-the-cloud:2.4.1-1540490856"
   }
   output {
     File output_sam = "${output_bam_basename}.sam"
@@ -446,31 +447,29 @@ task FastqBwaMem {
 
 # convert Sam file to Bam
 task SamtoBam {
-File input_sam
-String output_basename
-Float disk_size
-Int preemptible_tries
-File ref_fasta
+  File input_sam
+  String output_basename
+  Float disk_size
+  Int preemptible_tries
+  File ref_fasta
 
+  command <<<
+    set -e
+    set -o pipefail
 
-command <<<
-set -e
-set -o pipefail
-
-
-samtools view -bT ${ref_fasta} ${input_sam} >${output_basename}.unsorted.bam
-samtools sort ${output_basename}.unsorted.bam > ${output_basename}.bam
+    samtools view -bT ${ref_fasta} ${input_sam} >${output_basename}.unsorted.bam
+    samtools sort ${output_basename}.unsorted.bam > ${output_basename}.bam
 >>>
-runtime {
-preemptible: preemptible_tries
-memory: "3 GB"
-cpu: "1"
-disks: "local-disk " + sub(disk_size, "\\..*", "") + " HDD"
-docker: "broadinstitute/genomes-in-the-cloud:2.3.1-1512499786"
-}
-output {
-File output_bam = "${output_basename}.bam"
-}
+  runtime {
+    preemptible: preemptible_tries
+    memory: "3 GB"
+    cpu: "1"
+    disks: "local-disk " + sub(disk_size, "\\..*", "") + " HDD"
+    docker: "us.gcr.io/broad-gotc-prod/genomes-in-the-cloud:2.4.1-1540490856"
+  }
+  output {
+    File output_bam = "${output_basename}.bam"
+  }
 }
 
 
@@ -497,7 +496,7 @@ task SortSam {
     cpu: "1"
     memory: "5000 MB"
     preemptible: preemptible_tries
-    docker: "broadinstitute/genomes-in-the-cloud:2.3.1-1512499786"
+    docker: "us.gcr.io/broad-gotc-prod/genomes-in-the-cloud:2.4.1-1540490856"
   }
   output {
     File output_bam = "${output_bam_basename}.bam"
@@ -534,7 +533,7 @@ task CollectUnsortedReadgroupBamQualityMetrics {
     memory: "7 GB"
     disks: "local-disk " + sub(disk_size, "\\..*", "") + " HDD"
     preemptible: preemptible_tries
-    docker: "broadinstitute/genomes-in-the-cloud:2.3.1-1512499786"
+    docker: "us.gcr.io/broad-gotc-prod/genomes-in-the-cloud:2.4.1-1540490856"
   }
   output {
     File base_distribution_by_cycle_pdf = "${output_bam_prefix}.base_distribution_by_cycle.pdf"
@@ -676,6 +675,7 @@ task BaseRecalibrator {
     preemptible: preemptible_tries
     memory: "6 GB"
     disks: "local-disk " + sub(disk_size, "\\..*", "") + " HDD"
+    docker: "broadinstitute/gatk:4.0.11.0"
   }
   output {
     File recalibration_report = "${recalibration_report_filename}"
@@ -713,6 +713,7 @@ task ApplyBQSR {
     preemptible: preemptible_tries
     memory: "3500 MB"
     disks: "local-disk " + sub(disk_size, "\\..*", "") + " HDD"
+    docker: "broadinstitute/gatk:4.0.11.0"
   }
   output {
     File recalibrated_bam = "${output_bam_basename}.bam"
@@ -737,6 +738,7 @@ task GatherBqsrReports {
     preemptible: preemptible_tries
     memory: "3500 MB"
     disks: "local-disk " + disk_size + " HDD"
+    docker: "broadinstitute/gatk:4.0.11.0"
   }
   output {
     File output_bqsr_report = "${output_report_filename}"
@@ -763,7 +765,7 @@ task GatherBamFiles {
     preemptible: preemptible_tries
     memory: "3 GB"
     disks: "local-disk " + sub(disk_size, "\\..*", "") + " HDD"
-    docker: "broadinstitute/genomes-in-the-cloud:2.3.1-1512499786"
+    docker: "us.gcr.io/broad-gotc-prod/genomes-in-the-cloud:2.4.1-1540490856"
   }
   output {
     File output_bam = "${output_bam_basename}.bam"
@@ -847,7 +849,7 @@ task ValidateSamFile {
     preemptible: preemptible_tries
     memory: "7 GB"
     disks: "local-disk " + sub(disk_size, "\\..*", "") + " HDD"
-    docker: "broadinstitute/genomes-in-the-cloud:2.3.1-1512499786"
+    docker: "us.gcr.io/broad-gotc-prod/genomes-in-the-cloud:2.4.1-1540490856"
   }
   output {
     File report = "${report_filename}"
@@ -873,7 +875,7 @@ task CalculateReadGroupChecksum {
     preemptible: preemptible_tries
     memory: "2 GB"
     disks: "local-disk " + sub(disk_size, "\\..*", "") + " HDD"
-    docker: "broadinstitute/genomes-in-the-cloud:2.3.1-1512499786"
+    docker: "us.gcr.io/broad-gotc-prod/genomes-in-the-cloud:2.4.1-1540490856"
   }
   output {
     File md5_file = "${read_group_md5_filename}"
@@ -995,13 +997,14 @@ task ScatterIntervalList {
   }
   runtime {
     memory: "2 GB"
-    docker: "broadinstitute/genomes-in-the-cloud:2.3.1-1512499786"
+    docker: "us.gcr.io/broad-gotc-prod/genomes-in-the-cloud:2.4.1-1540490856"
   }
 }
 
 # Call variants on a single sample with HaplotypeCaller to produce a GVCF
 task HaplotypeCaller {
-  String input_bam
+  File input_bam
+  File input_bai
   File interval_list
   String gvcf_basename
   File ref_dict
@@ -1017,33 +1020,30 @@ task HaplotypeCaller {
   # Using PrintReads is a temporary solution until we update HaploypeCaller to use GATK4. Once that is done,
   # HaplotypeCaller can stream the required intervals directly from the cloud.
   command {
-    /usr/gitc/gatk4/gatk-launch --javaOptions "-Xms2g" \
+    /gatk/gatk --java-options "-Xms2g" \
       PrintReads \
       -I ${input_bam} \
-      --interval_padding 500 \
+      --interval-padding 500 \
       -L ${interval_list} \
       -O local.sharded.bam \
     && \
-    java -XX:GCTimeLimit=50 -XX:GCHeapFreeLimit=10 -Xms8000m \
-      -jar /usr/gitc/GATK35.jar \
-      -T HaplotypeCaller \
+    /gatk/gatk --java-options "-XX:GCTimeLimit=50 -XX:GCHeapFreeLimit=10 -Xms8000m" \
+      HaplotypeCaller \
       -R ${ref_fasta} \
-      -o ${gvcf_basename}.vcf.gz \
+      -O ${gvcf_basename}.vcf.gz \
       -I local.sharded.bam \
       -L ${interval_list} \
       -ERC GVCF \
-      --max_alternate_alleles 3 \
-      -variant_index_parameter 128000 \
-      -variant_index_type LINEAR \
-      -contamination ${default=0 contamination} \
-      --read_filter OverclippedRead
+      --max-alternate-alleles 3 \
+      --contamination ${default=0 contamination} \
+      --read-filter OverclippedRead
   }
   runtime {
     preemptible: preemptible_tries
     memory: "10 GB"
     cpu: "1"
     disks: "local-disk " + sub(disk_size, "\\..*", "") + " HDD"
-    docker: "broadinstitute/genomes-in-the-cloud:2.3.1-1512499786"
+    docker: "broadinstitute/gatk:4.0.11.0"
   }
   output {
     File output_gvcf = "${gvcf_basename}.vcf.gz"
@@ -1071,7 +1071,7 @@ task MergeVCFs {
     preemptible: preemptible_tries
     memory: "3 GB"
     disks: "local-disk " + disk_size + " HDD"
-    docker: "broadinstitute/genomes-in-the-cloud:2.3.1-1512499786"
+    docker: "us.gcr.io/broad-gotc-prod/genomes-in-the-cloud:2.4.1-1540490856"
   }
   output {
     File output_vcf = "${output_vcf_name}"
@@ -1106,6 +1106,7 @@ task ValidateGVCF {
     preemptible: preemptible_tries
     memory: "3500 MB"
     disks: "local-disk " + sub(disk_size, "\\..*", "") + " HDD"
+    docker: "broadinstitute/gatk:4.0.11.0"
   }
 }
 
@@ -1135,7 +1136,7 @@ task CollectGvcfCallingMetrics {
     preemptible: preemptible_tries
     memory: "3 GB"
     disks: "local-disk " + sub(disk_size, "\\..*", "") + " HDD"
-    docker: "broadinstitute/genomes-in-the-cloud:2.3.1-1512499786"
+    docker: "us.gcr.io/broad-gotc-prod/genomes-in-the-cloud:2.4.1-1540490856"
   }
   output {
     File summary_metrics = "${metrics_basename}.variant_calling_summary_metrics"
@@ -1173,7 +1174,7 @@ task ConvertToCram {
     memory: "3 GB"
     cpu: "1"
     disks: "local-disk " + sub(disk_size, "\\..*", "") + " HDD"
-    docker: "broadinstitute/genomes-in-the-cloud:2.3.1-1512499786"
+    docker: "us.gcr.io/broad-gotc-prod/genomes-in-the-cloud:2.4.1-1540490856"
   }
   output {
     File output_cram = "${output_basename}.cram"
