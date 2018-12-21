@@ -10,12 +10,8 @@ workflow dnaseq {
   File contamination_sites_ud
   File contamination_sites_bed
   File contamination_sites_mu
-  File? fingerprint_genotypes_file
-  File? haplotype_database_file
   File wgs_evaluation_interval_list
-  File wgs_coverage_interval_list
 
-  String sample_name
   String base_file_name
   String final_gvcf_base_name
   String unmapped_fastq_suffix
@@ -26,7 +22,6 @@ workflow dnaseq {
   File wgs_calling_interval_list
   Int haplotype_scatter_count
   Int break_bands_at_multiples_of
-  Int? read_length
 
   File ref_fasta
   File ref_fasta_index
@@ -65,8 +60,7 @@ workflow dnaseq {
   # Mark Duplicates takes in as input readgroup bams and outputs a slightly smaller aggregated bam. Giving .25 as wiggleroom
   Float md_disk_multiplier = 2.25
 
-  # ValidateSamFile runs out of memory in mate validation on crazy edge case data, so we want to skip the mate validation
-  # in those cases.  These values set the thresholds for what is considered outside the normal realm of "reasonable" data.
+  # These values set the thresholds for what is considered outside the normal realm of "reasonable" data.
   Float max_duplication_in_reasonable_sample = 0.30
   Float max_chimerism_in_reasonable_sample = 0.15
 
@@ -75,10 +69,6 @@ workflow dnaseq {
   String recalibrated_bam_basename = base_file_name + ".aligned.duplicates_marked.recalibrated"
 
   Int compression_level = 2
-
-  # Get the version of BWA to include in the PG record in the header of the BAM produced
-  # by MergeBamAlignment.
-  call GetBwaVersion
 
   # Get the size of the standard reference files as well as the additional reference files needed for BWA
   Float ref_size = size(ref_fasta, "GB") + size(ref_fasta_index, "GB") + size(ref_dict, "GB")
@@ -89,86 +79,59 @@ workflow dnaseq {
 
   Float unmapped_fastq_size = size(raw_fastq1, "GB")+size(raw_fastq2, "GB")
 
-
-    String sub_strip_path = "gs://.*/"
-    String sub_strip_unmapped = unmapped_fastq_suffix + "$"
-    String sub_sub = sub(sub(raw_fastq1, sub_strip_path, ""), sub_strip_unmapped, "")
-
-    
-    # Map reads to reference
-    call FastqBwaMem {
-      input:
-        input_fastq1 = raw_fastq1,
-        input_fastq2 = raw_fastq2,
-        bwa_commandline = bwa_commandline,
-        output_bam_basename = sub_sub + ".aligned.unsorted",
-        ref_fasta = ref_fasta,
-        ref_fasta_index = ref_fasta_index,
-        ref_dict = ref_dict,
-        ref_alt = ref_alt,
-        ref_bwt = ref_bwt,
-        ref_amb = ref_amb,
-        ref_ann = ref_ann,
-        ref_pac = ref_pac,
-        ref_sa = ref_sa,
-        bwa_version = GetBwaVersion.version,
-        # The merged bam can be bigger than only the aligned bam,
-        # so account for the output size by multiplying the input size by 2.75.
-        disk_size = unmapped_fastq_size + bwa_ref_size + (bwa_disk_multiplier * unmapped_fastq_size) + additional_disk,
-        compression_level = compression_level,
-        preemptible_tries = preemptible_tries
-    }
-
-    Float mapped_sam_size = size(FastqBwaMem.output_sam, "GB")
-    call SamtoBam {
-      input:
-        input_sam = FastqBwaMem.output_sam,
-        output_basename = base_file_name,
-        disk_size = mapped_sam_size + additional_disk,
-        preemptible_tries = preemptible_tries,
-        ref_fasta =  ref_fasta
-    }
-
-    Float mapped_bam_size = size(SamtoBam.output_bam, "GB")
-
-  call MarkDuplicates {
+  # Map reads to reference
+  call FastqBwaMem {
     input:
-      input_bam = SamtoBam.output_bam,
-      output_bam_basename = base_file_name + ".aligned.unsorted.duplicates_marked",
-      metrics_filename = base_file_name + ".duplicate_metrics",
-      # The merged bam will be smaller than the sum of the parts so we need to account for the unmerged inputs
-      # and the merged output.
-      disk_size = (md_disk_multiplier * mapped_bam_size) + additional_disk,
-      preemptible_tries = agg_preemptible_tries
+      input_fastq1 = raw_fastq1,
+      input_fastq2 = raw_fastq2,
+      bwa_commandline = bwa_commandline,
+      output_bam_basename = base_file_name + ".aligned.unsorted",
+      ref_fasta = ref_fasta,
+      ref_fasta_index = ref_fasta_index,
+      ref_dict = ref_dict,
+      ref_alt = ref_alt,
+      ref_bwt = ref_bwt,
+      ref_amb = ref_amb,
+      ref_ann = ref_ann,
+      ref_pac = ref_pac,
+      ref_sa = ref_sa,
+      # The merged bam can be bigger than only the aligned bam,
+      # so account for the output size by multiplying the input size by 2.75.
+      disk_size = unmapped_fastq_size + bwa_ref_size + (bwa_disk_multiplier * unmapped_fastq_size) + additional_disk,
+      compression_level = compression_level,
+      preemptible_tries = preemptible_tries
   }
 
-  Float agg_bam_size = size(MarkDuplicates.output_bam, "GB")
-  
+  Float agg_bam_size = size(FastqBwaMem.output_bam, "GB")
   
   # Sort aggregated+deduped BAM file and fix tags
   call SortSam as SortSampleBam {
     input:
-      input_bam = MarkDuplicates.output_bam,
-      output_bam_basename = base_file_name + ".aligned.duplicate_marked.sorted",
+      input_bam = FastqBwaMem.output_bam,
+      output_bam_basename = base_file_name + ".aligned.sorted",
       # This task spills to disk so we need space for the input bam, the output bam, and any spillage.
       disk_size = (sort_sam_disk_multiplier * agg_bam_size) + additional_disk,
       compression_level = compression_level,
       preemptible_tries = agg_preemptible_tries
   }
 
-
-  # Create list of sequences for scatter-gather parallelization
-  call CreateSequenceGroupingTSV {
+  Float mapped_bam_size = size(SortSampleBam.output_bam, "GB")
+  
+  call MarkDuplicates {
     input:
-      ref_dict = ref_dict,
-      preemptible_tries = preemptible_tries
+      input_bam = SortSampleBam.output_bam,
+      output_bam_basename = base_file_name + ".aligned.sorted.duplicates_marked",
+      metrics_filename = base_file_name + ".duplicate_metrics",
+      disk_size = (md_disk_multiplier * mapped_bam_size) + additional_disk,
+      compression_level = compression_level,
+      preemptible_tries = agg_preemptible_tries
   }
 
   # Estimate level of cross-sample contamination
   call CheckContamination {
     input:
-      input_bam = SortSampleBam.output_bam,
-      input_bam_index = SortSampleBam.output_bam_index,
+      input_bam = MarkDuplicates.output_bam,
+      input_bam_index = MarkDuplicates.output_bam_index,
       contamination_sites_ud = contamination_sites_ud,
       contamination_sites_bed = contamination_sites_bed,
       contamination_sites_mu = contamination_sites_mu,
@@ -180,6 +143,13 @@ workflow dnaseq {
       contamination_underestimation_factor = 0.75
   }
 
+  # Create list of sequences for scatter-gather parallelization
+  call CreateSequenceGroupingTSV {
+    input:
+      ref_dict = ref_dict,
+      preemptible_tries = preemptible_tries
+  }
+
   # We need disk to localize the sharded input and output due to the scatter for BQSR.
   # If we take the number we are scattering by and reduce by 3 we will have enough disk space
   # to account for the fact that the data is not split evenly.
@@ -187,12 +157,13 @@ workflow dnaseq {
   Int potential_bqsr_divisor = num_of_bqsr_scatters - 10
   Int bqsr_divisor = if potential_bqsr_divisor > 1 then potential_bqsr_divisor else 1
 
-  # Perform Base Quality Score Recalibration (BQSR) on the sorted BAM in parallel
+ # Perform Base Quality Score Recalibration (BQSR) on the sorted BAM in parallel
   scatter (subgroup in CreateSequenceGroupingTSV.sequence_grouping) {
-    
+    # Generate the recalibration model by interval
     call BaseRecalibrator {
       input:
-        input_bam = SortSampleBam.output_bam,
+        input_bam = MarkDuplicates.output_bam,
+        input_bam_index = MarkDuplicates.output_bam_index,
         recalibration_report_filename = base_file_name + ".recal_data.csv",
         sequence_group_interval = subgroup,
         dbSNP_vcf = dbSNP_vcf,
@@ -204,7 +175,7 @@ workflow dnaseq {
         ref_fasta_index = ref_fasta_index,
         # We need disk to localize the sharded bam due to the scatter.
         disk_size = (agg_bam_size / bqsr_divisor) + ref_size + dbsnp_size + additional_disk,
-	preemptible_tries = agg_preemptible_tries
+        preemptible_tries = agg_preemptible_tries
     }
   }
 
@@ -222,7 +193,8 @@ workflow dnaseq {
     # Apply the recalibration model by interval
     call ApplyBQSR {
       input:
-        input_bam = SortSampleBam.output_bam,
+        input_bam = MarkDuplicates.output_bam,
+        input_bam_index = MarkDuplicates.output_bam_index,
         output_bam_basename = recalibrated_bam_basename,
         recalibration_report = GatherBqsrReports.output_bqsr_report,
         sequence_group_interval = subgroup,
@@ -232,7 +204,7 @@ workflow dnaseq {
         # We need disk to localize the sharded bam and the sharded output due to the scatter.
         disk_size = ((agg_bam_size * 3) / bqsr_divisor) + ref_size + additional_disk,
         compression_level = compression_level,
-	preemptible_tries = agg_preemptible_tries
+        preemptible_tries = agg_preemptible_tries
     }
   }
 
@@ -249,7 +221,6 @@ workflow dnaseq {
 
   #BQSR bins the qualities which makes a significantly smaller bam
   Float binned_qual_bam_size = size(GatherBamFiles.output_bam, "GB")
-
 
   # Break the calling interval_list into sub-intervals
   # Perform variant calling on the sub-intervals, and then gather the results
@@ -281,7 +252,7 @@ workflow dnaseq {
         ref_fasta_index = ref_fasta_index,
         # Divide the total output GVCF size and the input bam size to account for the smaller scattered input and output.
         disk_size = ((binned_qual_bam_size + GVCF_disk_size) / hc_divisor) + ref_size + additional_disk,
-	preemptible_tries = agg_preemptible_tries
+        preemptible_tries = agg_preemptible_tries
      }
   }
 
@@ -328,73 +299,27 @@ workflow dnaseq {
 
   # Outputs that will be retained when execution is complete
   output {
-
-
     File selfSM = CheckContamination.selfSM
     Float contamination = CheckContamination.contamination
-
-    File gvcf_summary_metrics = CollectGvcfCallingMetrics.summary_metrics
-    File gvcf_detail_metrics = CollectGvcfCallingMetrics.detail_metrics
 
     File duplicate_metrics = MarkDuplicates.duplicate_metrics
     File output_bqsr_reports = GatherBqsrReports.output_bqsr_report
 
     File output_vcf = MergeVCFs.output_vcf
     File output_vcf_index = MergeVCFs.output_vcf_index
+
+    File gvcf_summary_metrics = CollectGvcfCallingMetrics.summary_metrics
+    File gvcf_detail_metrics = CollectGvcfCallingMetrics.detail_metrics
   }
 }
 
 # TASK DEFINITIONS
 
-# Collect sequencing yield quality metrics
-task CollectQualityYieldMetrics {
-  File input_bam
-  String metrics_filename
-  Float disk_size
-  Int preemptible_tries
-
-  command {
-    java -Xms2000m -jar /usr/gitc/picard.jar \
-      CollectQualityYieldMetrics \
-      INPUT=${input_bam} \
-      OQ=true \
-      OUTPUT=${metrics_filename}
-  }
-  runtime {
-    disks: "local-disk " + sub(disk_size, "\\..*", "") + " HDD"
-    memory: "3 GB"
-    preemptible: preemptible_tries
-    docker: "us.gcr.io/broad-gotc-prod/genomes-in-the-cloud:2.4.1-1540490856"
-  }
-  output {
-    File metrics = "${metrics_filename}"
-  }
-}
-
-# Get version of BWA
-task GetBwaVersion {
-  command {
-    # not setting set -o pipefail here because /bwa has a rc=1 and we dont want to allow rc=1 to succeed because
-    # the sed may also fail with that error and that is something we actually want to fail on.
-    /usr/gitc/bwa 2>&1 | \
-    grep -e '^Version' | \
-    sed 's/Version: //'
-  }
-  runtime {
-    memory: "1 GB"
-    docker: "us.gcr.io/broad-gotc-prod/genomes-in-the-cloud:2.4.1-1540490856"
-  }
-  output {
-    String version = read_string(stdout())
-  }
-}
-
-# Read unmapped BAM, convert on-the-fly to FASTQ and stream to BWA MEM for alignment, then stream to MergeBamAlignment
+# Read FASTQ and stream to BWA MEM for alignment
 task FastqBwaMem {
   File input_fastq1
   File input_fastq2
   String bwa_commandline
-  String bwa_version
   String output_bam_basename
   File ref_fasta
   File ref_fasta_index
@@ -419,61 +344,21 @@ task FastqBwaMem {
 
     # set the bash variable needed for the command-line
     bash_ref_fasta=${ref_fasta}
-    # if ref_alt has data in it,
-    if [ -s ${ref_alt} ]; then
-      
-      /usr/gitc/${bwa_commandline} ${input_fastq1} ${input_fastq2} >${output_bam_basename}.sam \
-      2> >(tee ${output_bam_basename}.bwa.stderr.log >&2)
-      grep -m1 "read .* ALT contigs" ${output_bam_basename}.bwa.stderr.log | \
-      grep -v "read 0 ALT contigs"
-
-    # else ref_alt is empty or could not be found
-    else
-      exit 1;
-    fi
+    /usr/gitc/${bwa_commandline} ${input_fastq1} ${input_fastq2} | samtools view -bS -o ${output_bam_basename}.bam
+    
   >>>
   runtime {
     preemptible: preemptible_tries
-    memory: "14 GB"
+    memory: "40 GB"
     cpu: "16"
     disks: "local-disk " + sub(disk_size, "\\..*", "") + " HDD"
     docker: "us.gcr.io/broad-gotc-prod/genomes-in-the-cloud:2.4.1-1540490856"
   }
   output {
-    File output_sam = "${output_bam_basename}.sam"
-    File bwa_stderr_log = "${output_bam_basename}.bwa.stderr.log"
+    File output_bam = "${output_bam_basename}.bam"
   }
 }
 
-# convert Sam file to Bam
-task SamtoBam {
-  File input_sam
-  String output_basename
-  Float disk_size
-  Int preemptible_tries
-  File ref_fasta
-
-  command <<<
-    set -e
-    set -o pipefail
-
-    samtools view -bT ${ref_fasta} ${input_sam} >${output_basename}.unsorted.bam
-    samtools sort ${output_basename}.unsorted.bam > ${output_basename}.bam
->>>
-  runtime {
-    preemptible: preemptible_tries
-    memory: "3 GB"
-    cpu: "1"
-    disks: "local-disk " + sub(disk_size, "\\..*", "") + " HDD"
-    docker: "us.gcr.io/broad-gotc-prod/genomes-in-the-cloud:2.4.1-1540490856"
-  }
-  output {
-    File output_bam = "${output_basename}.bam"
-  }
-}
-
-
-# Sort BAM file by coordinate order and fix tag values for NM and UQ
 task SortSam {
   File input_bam
   String output_bam_basename
@@ -505,51 +390,6 @@ task SortSam {
   }
 }
 
-# Collect base quality and insert size metrics
-task CollectUnsortedReadgroupBamQualityMetrics {
-  File input_bam
-  String output_bam_prefix
-  Int preemptible_tries
-  Float disk_size
-
-  command {
-    java -Xms5000m -jar /usr/gitc/picard.jar \
-      CollectMultipleMetrics \
-      INPUT=${input_bam} \
-      OUTPUT=${output_bam_prefix} \
-      ASSUME_SORTED=true \
-      PROGRAM="null" \
-      PROGRAM="CollectBaseDistributionByCycle" \
-      PROGRAM="CollectInsertSizeMetrics" \
-      PROGRAM="MeanQualityByCycle" \
-      PROGRAM="QualityScoreDistribution" \
-      METRIC_ACCUMULATION_LEVEL="null" \
-      METRIC_ACCUMULATION_LEVEL="ALL_READS"
-
-    touch ${output_bam_prefix}.insert_size_metrics
-    touch ${output_bam_prefix}.insert_size_histogram.pdf
-  }
-  runtime {
-    memory: "7 GB"
-    disks: "local-disk " + sub(disk_size, "\\..*", "") + " HDD"
-    preemptible: preemptible_tries
-    docker: "us.gcr.io/broad-gotc-prod/genomes-in-the-cloud:2.4.1-1540490856"
-  }
-  output {
-    File base_distribution_by_cycle_pdf = "${output_bam_prefix}.base_distribution_by_cycle.pdf"
-    File base_distribution_by_cycle_metrics = "${output_bam_prefix}.base_distribution_by_cycle_metrics"
-    File insert_size_histogram_pdf = "${output_bam_prefix}.insert_size_histogram.pdf"
-    File insert_size_metrics = "${output_bam_prefix}.insert_size_metrics"
-    File quality_by_cycle_pdf = "${output_bam_prefix}.quality_by_cycle.pdf"
-    File quality_by_cycle_metrics = "${output_bam_prefix}.quality_by_cycle_metrics"
-    File quality_distribution_pdf = "${output_bam_prefix}.quality_distribution.pdf"
-    File quality_distribution_metrics = "${output_bam_prefix}.quality_distribution_metrics"
-  }
-}
-
-
-
-
 # Mark duplicate reads to avoid counting non-independent observations
 task MarkDuplicates {
   File input_bam
@@ -557,6 +397,7 @@ task MarkDuplicates {
   String metrics_filename
   Float disk_size
   Int preemptible_tries
+  Int compression_level
 
   # The program default for READ_NAME_REGEX is appropriate in nearly every case.
   # Sometimes we wish to supply "null" in order to turn off optical duplicate detection
@@ -567,26 +408,33 @@ task MarkDuplicates {
  # This works because the output of BWA is query-grouped and therefore, so is the output of MergeBamAlignment.
  # While query-grouped isn't actually query-sorted, it's good enough for MarkDuplicates with ASSUME_SORT_ORDER="queryname"
   command {
-    java -Xmx40g -jar /usr/gitc/picard.jar \
+    java -Dsamjdk.compression_level=${compression_level} -Xms4000m -jar /usr/gitc/picard.jar \
       MarkDuplicates \
       INPUT=${input_bam} \
       OUTPUT=${output_bam_basename}.bam \
       METRICS_FILE=${metrics_filename} \
-      VALIDATION_STRINGENCY=SILENT 
+      VALIDATION_STRINGENCY=SILENT \
+      OPTICAL_DUPLICATE_PIXEL_DISTANCE=2500 \
+      ASSUME_SORT_ORDER="coordinate" \
+      CLEAR_DT="false" \
+      ADD_PG_TAG_TO_READS=false
+    if [[ -s ${output_bam_basename}.bam ]]; then
+      samtools index ${output_bam_basename}.bam
+    fi
   }
   runtime {
     preemptible: preemptible_tries
-    memory: "40 GB"
+    cpu: "1"
+    memory: "7 GB"
     disks: "local-disk " + sub(disk_size, "\\..*", "") + " HDD"
     docker: "us.gcr.io/broad-gotc-prod/genomes-in-the-cloud:2.4.1-1540490856"
   }
   output {
     File output_bam = "${output_bam_basename}.bam"
+    File output_bam_index = "${output_bam_basename}.bam.bai"
     File duplicate_metrics = "${metrics_filename}"
   }
 }
-
-
 
 # Generate sets of intervals for scatter-gathering over chromosomes
 task CreateSequenceGroupingTSV {
@@ -645,7 +493,8 @@ task CreateSequenceGroupingTSV {
 
 # Generate Base Quality Score Recalibration (BQSR) model
 task BaseRecalibrator {
-  String input_bam
+  File input_bam
+  File input_bam_index
   String recalibration_report_filename
   Array[String] sequence_group_interval
   File dbSNP_vcf
@@ -673,21 +522,45 @@ task BaseRecalibrator {
   }
   runtime {
     preemptible: preemptible_tries
+    cpu: "1"
     memory: "6 GB"
     disks: "local-disk " + sub(disk_size, "\\..*", "") + " HDD"
-    docker: "broadinstitute/gatk:4.0.11.0"
   }
   output {
     File recalibration_report = "${recalibration_report_filename}"
   }
 }
 
+# Combine multiple recalibration tables from scattered BaseRecalibrator runs
+task GatherBqsrReports {
+  Array[File] input_bqsr_reports
+  String output_report_filename
+  Int disk_size
+  Int preemptible_tries
+
+  command {
+    /gatk/gatk --java-options "-Xms3000m" \
+      GatherBQSRReports \
+      -I ${sep=' -I ' input_bqsr_reports} \
+      -O ${output_report_filename}
+    }
+  runtime {
+    preemptible: preemptible_tries
+    memory: "3500 MB"
+    disks: "local-disk " + disk_size + " HDD"
+  }
+  output {
+    File output_bqsr_report = "${output_report_filename}"
+  }
+}
+
 # Apply Base Quality Score Recalibration (BQSR) model
 task ApplyBQSR {
-  String input_bam
+  File input_bam
+  File input_bam_index
   String output_bam_basename
-  File recalibration_report
   Array[String] sequence_group_interval
+  File recalibration_report
   File ref_dict
   File ref_fasta
   File ref_fasta_index
@@ -711,39 +584,17 @@ task ApplyBQSR {
   }
   runtime {
     preemptible: preemptible_tries
+    cpu: "1"
     memory: "3500 MB"
     disks: "local-disk " + sub(disk_size, "\\..*", "") + " HDD"
-    docker: "broadinstitute/gatk:4.0.11.0"
   }
   output {
     File recalibrated_bam = "${output_bam_basename}.bam"
+    File recalibrated_bam_index = "${output_bam_basename}.bai"
     File recalibrated_bam_checksum = "${output_bam_basename}.bam.md5"
   }
 }
 
-# Combine multiple recalibration tables from scattered BaseRecalibrator runs
-task GatherBqsrReports {
-  Array[File] input_bqsr_reports
-  String output_report_filename
-  Int disk_size
-  Int preemptible_tries
-
-  command {
-    /gatk/gatk --java-options "-Xms3000m" \
-      GatherBQSRReports \
-      -I ${sep=' -I ' input_bqsr_reports} \
-      -O ${output_report_filename}
-    }
-  runtime {
-    preemptible: preemptible_tries
-    memory: "3500 MB"
-    disks: "local-disk " + disk_size + " HDD"
-    docker: "broadinstitute/gatk:4.0.11.0"
-  }
-  output {
-    File output_bqsr_report = "${output_report_filename}"
-  }
-}
 
 # Combine multiple recalibrated BAM files from scattered ApplyRecalibration runs
 task GatherBamFiles {
@@ -771,114 +622,6 @@ task GatherBamFiles {
     File output_bam = "${output_bam_basename}.bam"
     File output_bam_index = "${output_bam_basename}.bai"
     File output_bam_md5 = "${output_bam_basename}.bam.md5"
-  }
-}
-
-task CheckPreValidation {
-    File duplication_metrics
-    File chimerism_metrics
-    Float max_duplication_in_reasonable_sample
-    Float max_chimerism_in_reasonable_sample
-    Int preemptible_tries
-
-  command <<<
-    set -o pipefail
-    set -e
-
-    grep -A 1 PERCENT_DUPLICATION ${duplication_metrics} > duplication.csv
-    grep -A 3 PCT_CHIMERAS ${chimerism_metrics} | grep -v OF_PAIR > chimerism.csv
-
-    python <<CODE
-
-    import csv
-    with open('duplication.csv') as dupfile:
-      reader = csv.DictReader(dupfile, delimiter='\t')
-      for row in reader:
-        with open("duplication_value.txt","w") as file:
-          file.write(row['PERCENT_DUPLICATION'])
-          file.close()
-
-    with open('chimerism.csv') as chimfile:
-      reader = csv.DictReader(chimfile, delimiter='\t')
-      for row in reader:
-        with open("chimerism_value.txt","w") as file:
-          file.write(row['PCT_CHIMERAS'])
-          file.close()
-
-    CODE
-
-  >>>
-  runtime {
-    preemptible: preemptible_tries
-    docker: "python:2.7"
-    memory: "2 GB"
-  }
-  output {
-    Float duplication_rate = read_float("duplication_value.txt")
-    Float chimerism_rate = read_float("chimerism_value.txt")
-    Boolean is_outlier_data = duplication_rate > max_duplication_in_reasonable_sample || chimerism_rate > max_chimerism_in_reasonable_sample
-  }
-}
-
-task ValidateSamFile {
-  File input_bam
-  File? input_bam_index
-  String report_filename
-  File ref_dict
-  File ref_fasta
-  File ref_fasta_index
-  Int? max_output
-  Array[String]? ignore
-  Boolean? is_outlier_data
-  Float disk_size
-  Int preemptible_tries
-
-  command {
-    java -Xms6000m -jar /usr/gitc/picard.jar \
-      ValidateSamFile \
-      INPUT=${input_bam} \
-      OUTPUT=${report_filename} \
-      REFERENCE_SEQUENCE=${ref_fasta} \
-      ${"MAX_OUTPUT=" + max_output} \
-      IGNORE=${default="null" sep=" IGNORE=" ignore} \
-      MODE=VERBOSE \
-      ${default='SKIP_MATE_VALIDATION=false' true='SKIP_MATE_VALIDATION=true' false='SKIP_MATE_VALIDATION=false' is_outlier_data} \
-      IS_BISULFITE_SEQUENCED=false
-  }
-  runtime {
-    preemptible: preemptible_tries
-    memory: "7 GB"
-    disks: "local-disk " + sub(disk_size, "\\..*", "") + " HDD"
-    docker: "us.gcr.io/broad-gotc-prod/genomes-in-the-cloud:2.4.1-1540490856"
-  }
-  output {
-    File report = "${report_filename}"
-  }
-}
-
-
-# Generate a checksum per readgroup
-task CalculateReadGroupChecksum {
-  File input_bam
-  File input_bam_index
-  String read_group_md5_filename
-  Float disk_size
-  Int preemptible_tries
-
-  command {
-    java -Xms1000m -jar /usr/gitc/picard.jar \
-      CalculateReadGroupChecksum \
-      INPUT=${input_bam} \
-      OUTPUT=${read_group_md5_filename}
-  }
-  runtime {
-    preemptible: preemptible_tries
-    memory: "2 GB"
-    disks: "local-disk " + sub(disk_size, "\\..*", "") + " HDD"
-    docker: "us.gcr.io/broad-gotc-prod/genomes-in-the-cloud:2.4.1-1540490856"
-  }
-  output {
-    File md5_file = "${read_group_md5_filename}"
   }
 }
 
@@ -949,6 +692,7 @@ task CheckContamination {
   >>>
   runtime {
     preemptible: preemptible_tries
+    cpu: "1"
     memory: "2 GB"
     disks: "local-disk " + sub(disk_size, "\\..*", "") + " HDD"
     docker: "us.gcr.io/broad-gotc-prod/verify-bam-id:c8a66425c312e5f8be46ab0c41f8d7a1942b6e16-1500298351"
@@ -1040,16 +784,16 @@ task HaplotypeCaller {
   }
   runtime {
     preemptible: preemptible_tries
-    memory: "10 GB"
+    memory: "40 GB"
     cpu: "1"
     disks: "local-disk " + sub(disk_size, "\\..*", "") + " HDD"
-    docker: "broadinstitute/gatk:4.0.11.0"
   }
   output {
     File output_gvcf = "${gvcf_basename}.vcf.gz"
     File output_gvcf_index = "${gvcf_basename}.vcf.gz.tbi"
   }
 }
+
 
 # Combine multiple VCFs or GVCFs from scattered HaplotypeCaller runs
 task MergeVCFs {
@@ -1104,9 +848,9 @@ task ValidateGVCF {
   }
   runtime {
     preemptible: preemptible_tries
+    cpu: "1"
     memory: "3500 MB"
     disks: "local-disk " + sub(disk_size, "\\..*", "") + " HDD"
-    docker: "broadinstitute/gatk:4.0.11.0"
   }
 }
 
@@ -1134,6 +878,7 @@ task CollectGvcfCallingMetrics {
   }
   runtime {
     preemptible: preemptible_tries
+    cpu: "1"
     memory: "3 GB"
     disks: "local-disk " + sub(disk_size, "\\..*", "") + " HDD"
     docker: "us.gcr.io/broad-gotc-prod/genomes-in-the-cloud:2.4.1-1540490856"
@@ -1141,61 +886,5 @@ task CollectGvcfCallingMetrics {
   output {
     File summary_metrics = "${metrics_basename}.variant_calling_summary_metrics"
     File detail_metrics = "${metrics_basename}.variant_calling_detail_metrics"
-  }
-}
-
-# Convert BAM file to CRAM format
-# Note that reading CRAMs directly with Picard is not yet supported
-task ConvertToCram {
-  File input_bam
-  File ref_fasta
-  File ref_fasta_index
-  String output_basename
-  Float disk_size
-  Int preemptible_tries
-
-  command <<<
-    set -e
-    set -o pipefail
-
-    samtools view -C -T ${ref_fasta} ${input_bam} | \
-    tee ${output_basename}.cram | \
-    md5sum | awk '{print $1}' > ${output_basename}.cram.md5
-
-    # Create REF_CACHE. Used when indexing a CRAM
-    seq_cache_populate.pl -root ./ref/cache ${ref_fasta}
-    export REF_PATH=:
-    export REF_CACHE=./ref/cache/%2s/%2s/%s
-
-    samtools index ${output_basename}.cram
-  >>>
-  runtime {
-    preemptible: preemptible_tries
-    memory: "3 GB"
-    cpu: "1"
-    disks: "local-disk " + sub(disk_size, "\\..*", "") + " HDD"
-    docker: "us.gcr.io/broad-gotc-prod/genomes-in-the-cloud:2.4.1-1540490856"
-  }
-  output {
-    File output_cram = "${output_basename}.cram"
-    File output_cram_index = "${output_basename}.cram.crai"
-    File output_cram_md5 = "${output_basename}.cram.md5"
-  }
-}
-
-# Calculates sum of a list of floats
-task SumFloats {
-  Array[Float] sizes
-  Int preemptible_tries
-
-  command <<<
-  python -c "print ${sep="+" sizes}"
-  >>>
-  output {
-    Float total_size = read_float(stdout())
-  }
-  runtime {
-    docker: "python:2.7"
-    preemptible: preemptible_tries
   }
 }
