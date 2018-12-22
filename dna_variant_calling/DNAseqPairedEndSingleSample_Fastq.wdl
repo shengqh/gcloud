@@ -784,7 +784,7 @@ task HaplotypeCaller {
   }
   runtime {
     preemptible: preemptible_tries
-    memory: "40 GB"
+    memory: "10 GB"
     cpu: "1"
     disks: "local-disk " + sub(disk_size, "\\..*", "") + " HDD"
   }
