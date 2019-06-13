@@ -1,0 +1,5 @@
+CREATE USER 'cromwelluser'@'localhost' IDENTIFIED BY '!cqs2019';
+CREATE USER 'cromwelluser'@'%' IDENTIFIED BY '!cqs2019';
+CREATE DATABASE cromwell_db;
+GRANT ALL PRIVILEGES ON cromwell_db.* TO 'cromwelluser'@'localhost' WITH GRANT OPTION;
+GRANT ALL PRIVILEGES ON cromwell_db.* TO 'cromwelluser'@'%' WITH GRANT OPTION;
